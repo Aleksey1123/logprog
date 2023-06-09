@@ -3,10 +3,12 @@
 
 domains
     genre = драма; боевик; ужасы.
+    фильмы = фильмы(integer FilmId, string FilmName, string ReleaseYear, string Producer, genre Genre, real Rating).
+    кинотеатры = кинотеатры(integer CinemaId, string CinemaName, string Adress, string PhoneNum, string SeatsNum).
 
 class facts - kinoDb
     кинотеатр : (integer CinemaId, string CinemaName, string Adress, string PhoneNum, string SeatsNum).
-    кинофильм : (integer FilmId, string FilmName, string ReleaseYear, string Producer, genre Genre).
+    кинофильм : (integer FilmId, string FilmName, string ReleaseYear, string Producer, genre Genre, real Rating).
     показывают : (integer CinemaId, integer FilmId, string ShowDate, string ShowTime, integer Revenue).
     чек : (integer Total).
     стоимостьБилета : (integer FilmId, integer Price).
@@ -16,9 +18,9 @@ clauses
     кинотеатр(2, "Формула Кино на Полежаевской", "Москва, Хорошевское шоссе, д. 27", "8 (800) 700-01-11", "1840 мест").
     кинотеатр(3, "Формула Кино ЦДМ", "Москва, Театральный пр., 5/1", "8 (812) 363-36-78", "1840 мест").
 
-    кинофильм(11, "Вызов", "2023", "Клим Шипенко", драма).
-    кинофильм(12, "Джон Уик 4", "2023", "Чад Стахелски", боевик).
-    кинофильм(13, "Возрожденные", "2023", "Егор Баранов", ужасы).
+    кинофильм(11, "Вызов", "2023", "Клим Шипенко", драма, 6.5).
+    кинофильм(12, "Джон Уик 4", "2023", "Чад Стахелски", боевик, 8.2).
+    кинофильм(13, "Возрожденные", "2023", "Егор Баранов", ужасы, 7.4).
 
     показывают(1, 11, "06.05.2023", "15:05", 15000).
     показывают(1, 12, "06.05.2023", "22:35", 18000).
@@ -34,6 +36,21 @@ clauses
 
     чек(0).
 
+class predicates  %вспомогательные предикаты для рассчёта
+    длина : (A*) -> integer.
+    сумма : (real* List) -> real Sum.
+    среднее : (real* List) -> real Average determ.
+
+clauses
+    длина([]) = 0.
+    длина([_ | T]) = длина(T) + 1. % считаем длину
+
+    сумма([]) = 0.
+    сумма([H | T]) = сумма(T) + H. % считаем сумму
+
+    среднее(L) = сумма(L) / длина(L) :-
+        длина(L) > 0. % считаем среднее значение
+
 class predicates
     вывестиКинотеатры : ().
     вывестиФильмы : ().
@@ -43,26 +60,53 @@ class predicates
     купитьБилет : (integer FilmId).
     вывестиСумму : ().
     вывестиСтоимостьБилета : (integer FilmId).
-    /*вывестиМеста : (string* List).
-    забронироватьМеста : ().
-    номерМеста : (string*, integer, integer [out]) determ.*/
+    фильмыКинотеатраСписок : (integer CinemaId) -> string* Компоненты determ. %поиск фильмов по критерию
+    колФильмов : (string FilmName) -> integer N determ.
+    среднийРейтингФильмов : (integer FilmId) -> real Sum determ.
+    найтиФильм : (string Фильм, string* L) determ.
 
 clauses
     вывестиКинотеатры() :-
-        кинотеатр(CinemaId, CinemaName, Adress, PhoneNum, SeatsNum),
-        write(CinemaId, " | ", CinemaName, " | ", Adress, " | ", PhoneNum, " | ", SeatsNum),
-        nl,
-        fail.
-    вывестиКинотеатры() :-
-        write("↑ Все открытые кинотеатры выведены выше ↑\n").
+        Кинотеатры = [ кинотеатры(CinemaId, CinemaName, Adress, PhoneNum, SeatsNum) || кинотеатр(CinemaId, CinemaName, Adress, PhoneNum, SeatsNum) ],
+        %write(CinemaId, " | ", CinemaName, " | ", Adress, " | ", PhoneNum, " | ", SeatsNum),
+        foreach кинотеатры(CinemaId, CinemaName, Adress, PhoneNum, SeatsNum) = list::getMember_nd(Кинотеатры) do
+            write(CinemaId, " | ", CinemaName, " | ", Adress, " | ", PhoneNum, " | ", SeatsNum),
+            nl
+        end foreach.
+
+    фильмыКинотеатраСписок(CinemaId) = List :-
+        кинотеатр(CinemaId, _, _, _, _),
+        !,
+        List =
+            [ FilmName ||
+                показывают(CinemaId, FilmId, _, _, _),
+                кинофильм(FilmId, FilmName, _, _, _, _)
+            ].
+
+    колФильмов(X) = длина(фильмыКинотеатраСписок(toTerm(X))). % длина списка с фильмами
+
+    среднийРейтингФильмов(CinemaId) = Average :-
+        кинотеатр(CinemaId, _, _, _, _),
+        !,
+        Average =
+            среднее(
+                [ Rating ||
+                    показывают(CinemaId, FilmId, _, _, _),
+                    кинофильм(FilmId, _, _, _, _, Rating)
+                ]).
+
+    найтиФильм(Фильм, [_ | ОстальныеЭлементы]) :-
+        % поиск по списку
+        найтиФильм(Фильм, ОстальныеЭлементы).
 
     вывестиФильмы() :-
-        кинофильм(FilmId, FilmName, _, _, _),
-        write(FilmId, " | ", FilmName),
-        nl,
-        fail.
-    вывестиФильмы() :-
-        write("↑ Все фильмы проката выведены выше ↑\n").
+        Фильмы =
+            [ фильмы(FilmId, FilmName, ReleaseYear, Producer, Genre, Rating) || кинофильм(FilmId, FilmName, ReleaseYear, Producer, Genre, Rating) ],
+        %write("ID |      Name |    Year   |    Producer    |   Genre   |   Rating  "),
+        foreach фильмы(FilmId, FilmName, ReleaseYear, Producer, Genre, Rating) = list::getMember_nd(Фильмы) do
+            write(FilmId, " | ", FilmName, " | ", ReleaseYear, " | ", Producer, " | ", Genre, " | ", Rating),
+            nl
+        end foreach.
 
     купитьБилет(FilmId) :-
         стоимостьБилета(FilmId, Price),
@@ -98,16 +142,20 @@ clauses
         write("Введите 1 - чтобы вывести работающие кинотеатры\n"),
         write("Введите 2 - чтобы вывести фильмы проката\n"),
         write("Введите 3 - чтобы купить билет\n"),
-        write("Введите 4 - чтобы выйти из программы\n"),
+        write("Введите 4 - чтобы вывести фильмы желаемого кинотеатра\n"),
+        write("Введите ~ - чтобы найти желаемый фильм\n"),
+        write("Введите 5 - чтобы выйти из программы\n"),
         write("--------------------------------------------------------------------------------------------------------------------\n"),
         Num = stdio::readLine(),
         write("\n"),
         if Num = "1" then
             вывестиКинотеатры(),
-            кинотеатр3000()
+            кинотеатр3000(),
+            fail
         elseif Num = "2" then
             вывестиФильмы(),
-            кинотеатр3000()
+            кинотеатр3000(),
+            fail
         elseif Num = "3" then
             /*забронироватьМеста(),*/
             write("Введите ID фильма на который хотите пойти: "),
@@ -123,42 +171,87 @@ clauses
                     купитьБилет(toTerm(ID)),
                     write("Сумма к оплате: "),
                     вывестиСумму(),
-                    кинотеатр3000()
+                    кинотеатр3000(),
+                    fail
                 elseif Number = "2" then
                     write("Возвращаюсь на главную"),
                     nl,
-                    кинотеатр3000()
+                    кинотеатр3000(),
+                    fail
                 else
                     write("Некорректный символ, попробуйте ещё раз!\n"),
-                    кинотеатр3000()
+                    кинотеатр3000(),
+                    fail
                 end if
             else
                 write("Некорректный символ, попробуйте ещё раз!\n"),
-                кинотеатр3000()
+                кинотеатр3000(),
+                fail
             end if
         elseif Num = "4" then
+            write("Введите Id кинотеатра: "),
+            X = stdio::readLine(),
+            nl,
+            L = фильмыКинотеатраСписок(toTerm(X)),
+            write(L),
+            nl,
+            write("Количество фильмов = "),
+            write(колФильмов(X)),
+            nl,
+            write("Средний рейтинг фильмов = "),
+            write(среднийРейтингФильмов(toTerm(X))),
+            nl,
+            кинотеатр3000(),
+            fail
+        elseif Num = "~" then
+            write("Введите название фильма, который хотите найти: "),
+            Y = stdio::readLine(),
+            nl,
+            найтиФильм(toTerm(Y), ["Вызов", "Джон Уик 4", "Возрожденные"]),
+            nl,
+            write("Такой фильм есть в списке"),
+            nl,
+            кинотеатр3000(),
+            fail
+            or
+            write("Такого фильма нет в списке"),
+            nl,
+            кинотеатр3000(),
+            fail
+        elseif Num = "5" then
             write("Вы точно хотите выйти?\n"),
             write("1 - ДА\n"),
             write("2 - НЕТ\n"),
             QuitNum = stdio::readLine(),
             if QuitNum = "1" then
-                write("Вышли")
+                write("Вышли"),
+                fail
             elseif QuitNum = "2" then
-                кинотеатр3000()
+                кинотеатр3000(),
+                fail
             else
                 write("Некорректный символ, попробуйте ещё раз!\n"),
-                кинотеатр3000()
+                кинотеатр3000(),
+                fail
             end if
         else
             write("Некорректный символ, попробуйте ещё раз!\n"),
-            кинотеатр3000()
+            кинотеатр3000(),
+            fail
         end if.
+    кинотеатр3000() :-
+        nl,
+        succeed.
 
 clauses
     run() :-
         /*consult("kinodb.txt", kinoDb),*/
         вывестиПриветствие(),
-        кинотеатр3000().
+        кинотеатр3000(),
+        nl,
+        fail.
+    run() :-
+        succeed.
 
 end implement main
 
